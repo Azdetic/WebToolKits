@@ -8,7 +8,7 @@
 <h1 align="center">WebToolKit</h1>
 
 <p align="center">
-  <i>A lightweight browser extension that captures web page content, merges multiple pages into one clipboard-ready block, and auto-answers Google Form quizzes — all from a single popup</i>
+  <i>A lightweight browser extension that captures web page content, merges multiple pages into one clipboard-ready block, and auto-answers Google Form quizzes, all from a single popup</i>
 </p>
 
 ---
@@ -75,7 +75,7 @@ WebToolKit/
 2. Toggle **Developer mode** ON (bottom-left corner)
 3. Click **Load unpacked**
 4. Select the `WebToolKit` folder
-5. Done — you should see the icon in your toolbar
+5. Done, you should see the icon in your toolbar
 
 </details>
 
@@ -86,7 +86,7 @@ WebToolKit/
 2. Toggle **Developer mode** ON (top-right corner)
 3. Click **Load unpacked**
 4. Select the `WebToolKit` folder
-5. Done — the icon appears in your toolbar
+5. Done, the icon appears in your toolbar
 
 </details>
 
@@ -166,8 +166,8 @@ WebToolKit uses the standard **Manifest V3** extension architecture:
 | Component | Role |
 |-----------|------|
 | **popup.js** | Renders the UI, handles button clicks, manages entry selection, and communicates with the background script |
-| **background.js** | Central message hub — receives commands from the popup, talks to content scripts, manages chrome.storage for entries and settings |
-| **content.js** | Injected into every web page — handles content extraction using the scoring algorithm, and handles Google Form answer detection |
+| **background.js** | Central message hub that receives commands from the popup, talks to content scripts, manages chrome.storage for entries and settings |
+| **content.js** | Injected into every web page to handle content extraction using the scoring algorithm, and handles Google Form answer detection |
 
 ### <img src="https://img.shields.io/badge/-Scoring_Algorithm-FF6B6B?style=flat-square" alt="Scoring" /> Content Scoring Algorithm
 
@@ -269,7 +269,7 @@ After making code changes, go to `edge://extensions/` and click the reload butto
 - Cannot capture `chrome://`, `edge://`, `about:`, or `file://` pages (browser restriction)
 - Cannot capture extension pages or pages with strict Content Security Policy
 - Google Form auto-answer only works when the form has a visible answer key (quiz mode)
-- Storage is local only — entries do not sync between devices
+- Storage is local only so entries do not sync between devices
 - Very large pages may be trimmed to 100KB
 
 ---
