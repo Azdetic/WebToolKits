@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>WebToolKit</title>
+    <link rel="stylesheet" href="popup.css" />
+  </head>
+  <body>
+    <div class="container">
+      <!-- header and controls -->
+      <div class="header">
+        <div class="controls">
+          <button id="startBtn" class="btn btn-start">Start</button>
+          <button id="stopBtn" class="btn btn-stop">Stop</button>
+          <span id="statusText" class="status">Status: Stopped</span>
+        </div>
+        <button id="captureBtn" class="btn btn-capture" disabled>
+          Manual Capture
+        </button>
+      </div>
+
+      <!-- buttons for entry management -->
+      <div class="entry-controls">
+        <div class="selection-controls">
+          <button id="selectAllBtn" class="btn btn-small">Select All</button>
+          <button id="deselectAllBtn" class="btn btn-small">
+            Deselect All
+          </button>
+          <button id="mergeBtn" class="btn btn-merge" disabled>
+            Merge + Copy
+          </button>
+        </div>
+        <div class="data-controls">
+          <button id="exportBtn" class="btn btn-small">Export JSON</button>
+          <button id="importBtn" class="btn btn-small">Import JSON</button>
+          <input
+            type="file"
+            id="importFile"
+            accept=".json"
+            title="Import JSON file"
+          />
+          <button id="clearAllBtn" class="btn btn-danger btn-small">
+            Clear All
+          </button>
+          <button id="testCopyBtn" class="btn btn-small btn-test">
+            Test Copy
+          </button>
+          <button id="debugBtn" class="btn btn-small btn-debug">
+            Debug Info
+          </button>
+          <button id="settingsBtn" class="btn btn-small btn-settings">
+            Settings
+          </button>
+          <button id="gformBtn" class="btn btn-small btn-gform">
+            Answer GForm
+          </button>
+        </div>
+      </div>
+
+      <!-- numbers and info -->
+      <div class="info-bar">
+        <span id="entryCount">0 entries</span>
+        <span id="selectedCount">0 selected</span>
+      </div>
+
+      <!-- list of items -->
+      <div class="entries-container">
+        <div id="entriesList" class="entries-list">
+          <div class="no-entries">
+            No entries captured yet. Press Start to begin capturing.
+          </div>
+        </div>
+      </div>
+
+      <!-- message popups -->
+      <div id="messageArea" class="message-area"></div>
+    </div>
+
+    <script src="popup.js"></script>
+  </body>
+</html>
