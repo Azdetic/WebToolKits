@@ -287,5 +287,9 @@ After making code changes, go to `edge://extensions/` and click the reload butto
 
 <p align="center">
   <img src="https://img.shields.io/badge/Version-1.0.0-blue?style=flat-square" alt="Version" />
+  <img src="https://img.shields.io/badge/License-MIT-green?style=flat-square" alt="License" />
   <img src="https://img.shields.io/badge/Updated-February_2026-lightgrey?style=flat-square" alt="Updated" />
+  <br/>
+  <a href="https://github.com/Azdetic"><img src="https://img.shields.io/badge/Made_by-Azdetic-4A90E2?style=flat-square&logo=github" alt="Author" /></a>
+  <a href="https://github.com/Azdetic/WebToolKits"><img src="https://img.shields.io/badge/Repo-WebToolKits-181717?style=flat-square&logo=github" alt="Repo" /></a>
 </p>
