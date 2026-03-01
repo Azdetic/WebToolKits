@@ -373,6 +373,12 @@ class WebToolKit {
       if (deleteBtn) {
         deleteBtn.addEventListener("click", () => this.deleteEntry(entry.id));
       }
+
+      // images button
+      const imagesBtn = document.getElementById(`images-${entry.id}`);
+      if (imagesBtn) {
+        imagesBtn.addEventListener("click", () => this.showImagesModal(entry));
+      }
     });
   }
 
@@ -404,6 +410,9 @@ class WebToolKit {
                 )}</div>
                 <div class="entry-info">
                     <span class="entry-size">${textSize}</span>
+                    ${entry.images && entry.images.length > 0
+                      ? `<button id="images-${entry.id}" class="entry-images-btn" title="View ${entry.images.length} image(s)">📷 ${entry.images.length} image(s)</button>`
+                      : ""}
                     ${
                       entry.trimmed
                         ? '<span class="entry-trimmed">Trimmed</span>'
@@ -468,23 +477,30 @@ class WebToolKit {
       selectedEntryList.map((e) => e.title)
     );
 
-    // create combined text
+    // create combined text AND html with embedded images
     let mergedText = "";
+    let mergedHtml = "";
+    let totalImages = 0;
+
     selectedEntryList.forEach((entry, index) => {
       if (index > 0) mergedText += "\n\n";
 
       mergedText +=
         "=".repeat(14) + ` Page ${index + 1} ` + "=".repeat(14) + "\n";
+      mergedHtml += `<h3>============== Page ${index + 1} ==============</h3>`;
 
       // add titles and stuff based on settings
       if (this.settings.includeTitle) {
         mergedText += `Title: ${entry.title}\n`;
+        mergedHtml += `<p><b>Title:</b> ${this.escapeHtml(entry.title)}</p>`;
       }
       if (this.settings.includeURL) {
         mergedText += `URL: ${entry.url}\n`;
+        mergedHtml += `<p><b>URL:</b> ${this.escapeHtml(entry.url)}</p>`;
       }
       if (this.settings.includeTime) {
         mergedText += `Time: ${new Date(entry.timestamp).toLocaleString()}\n`;
+        mergedHtml += `<p><b>Time:</b> ${new Date(entry.timestamp).toLocaleString()}</p>`;
       }
 
       // add empty space if we added metadata
@@ -496,28 +512,63 @@ class WebToolKit {
         mergedText += "\n";
       }
 
-      mergedText += entry.fullText;
+      // build text with images replaced by actual <img> tags in HTML
+      let entryText = entry.fullText;
+      let entryHtml = this.escapeHtml(entry.fullText);
+
+      // replace [IMAGE...] placeholders with actual base64 images in HTML
+      if (entry.images && entry.images.length > 0) {
+        for (const img of entry.images) {
+          if (!img.dataUrl) continue;
+
+          // find the placeholder in HTML that contains this image's src
+          // match patterns like [IMAGE | src] or [IMAGE: alt | src]
+          const escapedSrc = this.escapeHtml(img.src).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+          const imgRegex = new RegExp(
+            `\\[IMAGE[^\\]]*\\|\\s*${escapedSrc}\\]`,
+            'g'
+          );
+
+          const imgTag = `<br><img src="${img.dataUrl}" alt="${this.escapeHtml(img.alt || '')}" style="max-width:100%;"><br>`;
+          entryHtml = entryHtml.replace(imgRegex, imgTag);
+          totalImages++;
+        }
+      }
+
+      // convert newlines to <br> for HTML
+      entryHtml = entryHtml.replace(/\n/g, '<br>');
+
+      mergedText += entryText;
+      mergedHtml += `<div>${entryHtml}</div><hr>`;
     });
 
     console.log("Merged text length:", mergedText.length, "characters");
-
-    // check if we can copy to clipboard
-    const hasModernClipboard = !!(
-      navigator.clipboard && navigator.clipboard.writeText
-    );
-    const hasExecCommand = !!document.execCommand;
-
-    console.log("Clipboard API available:", hasModernClipboard);
-    console.log("ExecCommand available:", hasExecCommand);
-    console.log("User agent:", navigator.userAgent);
-    console.log("Protocol:", window.location.protocol);
+    console.log("Total images embedded:", totalImages);
 
     try {
-      // try new clipboard api first
-      if (hasModernClipboard) {
-        console.log("🔥 Attempting modern clipboard API...");
+      // try rich clipboard with HTML + images
+      if (navigator.clipboard && navigator.clipboard.write && totalImages > 0) {
+        console.log("🔥 Attempting rich clipboard with images...");
+        const htmlBlob = new Blob([mergedHtml], { type: "text/html" });
+        const textBlob = new Blob([mergedText], { type: "text/plain" });
+
+        await navigator.clipboard.write([
+          new ClipboardItem({
+            "text/html": htmlBlob,
+            "text/plain": textBlob,
+          }),
+        ]);
+
+        console.log("✅ Rich clipboard API succeeded!");
+        this.showMessage(
+          `Merged ${selectedEntryList.length} entries with ${totalImages} image(s) and copied to clipboard! 📷`,
+          "success"
+        );
+      } else if (navigator.clipboard && navigator.clipboard.writeText) {
+        // no images, just copy text
+        console.log("🔥 Attempting text-only clipboard...");
         await navigator.clipboard.writeText(mergedText);
-        console.log("✅ Modern clipboard API succeeded!");
+        console.log("✅ Text clipboard succeeded!");
         this.showMessage(
           `Merged ${selectedEntryList.length} entries and copied to clipboard!`,
           "success"
@@ -527,27 +578,22 @@ class WebToolKit {
       }
     } catch (error) {
       console.log("❌ Modern clipboard failed:", error.message);
-      console.log("Full error:", error);
 
-      // backup copy method for older browsers
+      // backup copy method
       try {
-        if (hasExecCommand) {
+        if (document.execCommand) {
           console.log("🔄 Attempting fallback clipboard method...");
           this.fallbackCopyToClipboard(mergedText);
           console.log("✅ Fallback clipboard method succeeded!");
           this.showMessage(
-            `Merged ${selectedEntryList.length} entries and copied to clipboard (fallback)!`,
+            `Merged ${selectedEntryList.length} entries and copied to clipboard (text only)!`,
             "success"
           );
         } else {
           throw new Error("ExecCommand not available");
         }
       } catch (fallbackError) {
-        console.error("❌ Both clipboard methods failed:");
-        console.error("Modern API error:", error);
-        console.error("Fallback error:", fallbackError);
-
-        // show manual copy dialog if all fails
+        console.error("❌ Both clipboard methods failed");
         this.showMessage(
           "Clipboard failed - showing manual copy dialog",
           "info"
@@ -852,7 +898,7 @@ chrome.storage.local.get(['capturing', 'entries'], console.log)
           <span>Include Title</span>
         </label>
         <small style="color: #666; margin-left: 24px; display: block;">
-          Example: "Title: Quiz Modul 1 (page 1 of 10) | CeLOE LMS"
+          Example: "Title: Quiz Modul 1 (page 1 of 10) | Test"
         </small>
       </div>
 
@@ -865,7 +911,7 @@ chrome.storage.local.get(['capturing', 'entries'], console.log)
           <span>Include URL</span>
         </label>
         <small style="color: #666; margin-left: 24px; display: block;">
-          Example: "URL: https://lms.telkomuniversity.ac.id/..."
+          Example: "URL: https://lms.ac.id/..."
         </small>
       </div>
 
@@ -1081,6 +1127,109 @@ chrome.storage.local.get(['capturing', 'entries'], console.log)
       textarea.focus();
       textarea.select();
     }, 100);
+  }
+
+  // Show modal with captured images for preview and download
+  showImagesModal(entry) {
+    // Remove existing modal
+    const existing = document.getElementById("imagesModal");
+    if (existing) existing.remove();
+
+    const images = entry.images || [];
+    if (images.length === 0) {
+      this.showMessage("No images found in this entry.", "info");
+      return;
+    }
+
+    const modal = document.createElement("div");
+    modal.id = "imagesModal";
+    modal.style.cssText = `
+      position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+      background: rgba(0,0,0,0.85); z-index: 10000;
+      display: flex; align-items: center; justify-content: center;
+    `;
+
+    const modalContent = document.createElement("div");
+    modalContent.style.cssText = `
+      background: white; padding: 16px; border-radius: 8px;
+      max-width: 95%; max-height: 90%; overflow-y: auto;
+      box-shadow: 0 4px 24px rgba(0,0,0,0.4);
+    `;
+
+    // header
+    let html = `
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+        <h3 style="margin: 0; color: #333;">📷 Captured Images (${images.length})</h3>
+        <div>
+          <button id="downloadAllImagesBtn" style="
+            padding: 6px 14px; background: #28a745; color: white;
+            border: none; border-radius: 4px; cursor: pointer; margin-right: 8px;
+            font-size: 12px;
+          ">⬇️ Download All</button>
+          <button id="closeImagesBtn" style="
+            padding: 6px 14px; background: #dc3545; color: white;
+            border: none; border-radius: 4px; cursor: pointer; font-size: 12px;
+          ">Close</button>
+        </div>
+      </div>
+      <p style="color: #666; font-size: 12px; margin-bottom: 12px;">
+        Right-click an image to copy it, or use download buttons below each image.
+      </p>
+    `;
+
+    // images grid
+    images.forEach((img, index) => {
+      const filename = img.alt || `image-${index + 1}`;
+      html += `
+        <div style="border: 1px solid #ddd; border-radius: 6px; padding: 10px; margin-bottom: 10px; background: #fafafa;">
+          <img src="${img.dataUrl}" alt="${this.escapeHtml(img.alt || "")}"
+               style="max-width: 100%; height: auto; display: block; margin: 0 auto; border-radius: 4px; cursor: pointer;"
+               title="Right-click to copy image">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 8px;">
+            <span style="font-size: 11px; color: #888;">${this.escapeHtml(filename)} • ${this.formatBytes(img.size)}</span>
+            <button class="download-single-img" data-index="${index}" style="
+              padding: 4px 10px; background: #007bff; color: white;
+              border: none; border-radius: 3px; cursor: pointer; font-size: 11px;
+            ">⬇️ Download PNG</button>
+          </div>
+        </div>
+      `;
+    });
+
+    modalContent.innerHTML = html;
+    modal.appendChild(modalContent);
+    document.body.appendChild(modal);
+
+    // close button
+    document.getElementById("closeImagesBtn").addEventListener("click", () => modal.remove());
+    modal.addEventListener("click", (e) => { if (e.target === modal) modal.remove(); });
+
+    // download all
+    document.getElementById("downloadAllImagesBtn").addEventListener("click", () => {
+      images.forEach((img, index) => {
+        this.downloadImage(img, index);
+      });
+      this.showMessage(`Downloading ${images.length} image(s)...`, "success");
+    });
+
+    // individual download buttons
+    modalContent.querySelectorAll(".download-single-img").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const idx = parseInt(btn.getAttribute("data-index"));
+        this.downloadImage(images[idx], idx);
+      });
+    });
+  }
+
+  // Download a single image as PNG file
+  downloadImage(img, index) {
+    const link = document.createElement("a");
+    link.href = img.dataUrl;
+    const filename = img.alt
+      ? img.alt.replace(/[^a-zA-Z0-9_-]/g, "_").substring(0, 50)
+      : `question-image-${index + 1}`;
+    link.download = `${filename}.png`;
+    link.click();
   }
 }
 

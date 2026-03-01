@@ -210,6 +210,14 @@ async function handleCaptureContent(tab, sendResponse) {
           capturedData.text.length
         );
 
+        // download images as base64
+        let images = [];
+        if (capturedData.images && capturedData.images.length > 0) {
+          console.log(`📷 Downloading ${capturedData.images.length} images...`);
+          images = await downloadImagesAsBase64(capturedData.images);
+          console.log(`📷 Successfully downloaded ${images.length} images`);
+        }
+
         // create entry object
         const entry = {
           id: Date.now().toString(),
@@ -220,6 +228,7 @@ async function handleCaptureContent(tab, sendResponse) {
           htmlOptional: capturedData.html
             ? capturedData.html.substring(0, 100000)
             : null,
+          images: images,
           timestamp: new Date().toISOString(),
           trimmed:
             capturedData.text.length > 100000 ||
@@ -384,6 +393,66 @@ async function saveEntryToStorage(entry) {
 
   await chrome.storage.local.set({ entries });
   console.log("✅ Entry saved, total entries:", entries.length);
+}
+
+// download images from URLs and convert to base64 data URLs
+async function downloadImagesAsBase64(imageInfos) {
+  const results = [];
+  const maxImages = 20; // limit to avoid storage issues
+
+  for (let i = 0; i < Math.min(imageInfos.length, maxImages); i++) {
+    const info = imageInfos[i];
+    try {
+      console.log(`📷 Downloading image ${i + 1}: ${info.src.substring(0, 80)}...`);
+
+      const response = await fetch(info.src, {
+        credentials: "include", // include cookies for authenticated images (LMS)
+      });
+
+      if (!response.ok) {
+        console.log(`⚠️ Image fetch failed: ${response.status}`);
+        continue;
+      }
+
+      const contentType = response.headers.get("content-type") || "image/png";
+
+      // skip non-image responses
+      if (!contentType.startsWith("image/")) {
+        console.log(`⚠️ Not an image: ${contentType}`);
+        continue;
+      }
+
+      const blob = await response.blob();
+
+      // skip tiny images (< 1KB likely icons)
+      if (blob.size < 1024) {
+        console.log(`⚠️ Image too small (${blob.size} bytes), skipping`);
+        continue;
+      }
+
+      // convert blob to base64 data URL
+      const dataUrl = await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onloadend = () => resolve(reader.result);
+        reader.onerror = reject;
+        reader.readAsDataURL(blob);
+      });
+
+      results.push({
+        src: info.src,
+        alt: info.alt || "",
+        dataUrl: dataUrl,
+        size: blob.size,
+        type: contentType,
+      });
+
+      console.log(`✅ Image ${i + 1} downloaded (${blob.size} bytes)`);
+    } catch (error) {
+      console.log(`❌ Failed to download image ${i + 1}:`, error.message);
+    }
+  }
+
+  return results;
 }
 
 // resolve save entry message

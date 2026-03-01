@@ -101,9 +101,30 @@ function captureMainContent() {
     const text = extractCleanText(mainElement);
     const html = sanitizeHTML(mainElement.innerHTML);
 
+    // collect all image URLs from content area
+    const images = [];
+    const imgElements = mainElement.querySelectorAll("img");
+    imgElements.forEach((img) => {
+      const src = img.src || img.getAttribute("src") || "";
+      const alt = img.alt || img.getAttribute("alt") || "";
+      const width = img.naturalWidth || img.width || 0;
+      const height = img.naturalHeight || img.height || 0;
+
+      // skip tiny images (icons, badges, spacers)
+      if (src && (width === 0 || width > 40) && (height === 0 || height > 40)) {
+        // skip data URIs that are tiny, and tracking pixels
+        if (!src.startsWith("data:image/gif") && !src.includes("spacer") && !src.includes("pixel")) {
+          images.push({ src, alt, width, height });
+        }
+      }
+    });
+
+    console.log(`📷 Found ${images.length} content images`);
+
     return {
       text: text.trim(),
       html: html.trim(),
+      images: images,
       url: window.location.href,
       title: document.title,
       domain: window.location.hostname,
@@ -210,7 +231,7 @@ function scoreElement(element, text) {
   return Math.max(score, 0);
 }
 
-// get clean text out of element
+// get clean text out of element, including image placeholders
 function extractCleanText(element) {
   // copy element so we do not break original
   const cloned = element.cloneNode(true);
@@ -292,13 +313,71 @@ function extractCleanText(element) {
     elements.forEach((el) => el.remove());
   });
 
-  // grab the text inside
-  let text = cloned.innerText || cloned.textContent || "";
+  // use recursive extraction that also catches images
+  let text = extractTextWithImages(cloned);
 
-  // clean up spaces
-  text = text.replace(/\s+/g, " ").trim();
+  // clean up spaces but keep newlines around image placeholders
+  text = text.replace(/[^\S\n]+/g, " ");
+  text = text.replace(/\n{3,}/g, "\n\n");
+  text = text.trim();
 
   return text;
+}
+
+// recursively walk DOM nodes to extract text AND image placeholders
+function extractTextWithImages(node) {
+  let result = "";
+
+  // skip invisible elements
+  if (node.nodeType === Node.ELEMENT_NODE) {
+    const tag = node.tagName.toLowerCase();
+
+    // skip hidden elements
+    if (tag === "script" || tag === "style" || tag === "noscript") {
+      return "";
+    }
+
+    // if this is an image, insert a placeholder with its URL
+    if (tag === "img") {
+      const src = node.getAttribute("src") || "";
+      const alt = node.getAttribute("alt") || "";
+
+      if (src) {
+        // build placeholder: include alt text if available
+        let placeholder = "\n[IMAGE";
+        if (alt && alt.trim().length > 0) {
+          placeholder += `: ${alt.trim()}`;
+        }
+        placeholder += ` | ${src}]`;
+        return placeholder + "\n";
+      }
+      return alt ? ` ${alt} ` : "";
+    }
+  }
+
+  // text node: return its content
+  if (node.nodeType === Node.TEXT_NODE) {
+    return node.textContent || "";
+  }
+
+  // recurse into child nodes
+  for (const child of node.childNodes) {
+    result += extractTextWithImages(child);
+  }
+
+  // add line breaks for block-level elements
+  if (node.nodeType === Node.ELEMENT_NODE) {
+    const blockTags = [
+      "div", "p", "br", "h1", "h2", "h3", "h4", "h5", "h6",
+      "li", "tr", "blockquote", "pre", "section", "article",
+      "table", "thead", "tbody", "tfoot",
+    ];
+    if (blockTags.includes(node.tagName.toLowerCase())) {
+      result += "\n";
+    }
+  }
+
+  return result;
 }
 
 // simple html cleanup

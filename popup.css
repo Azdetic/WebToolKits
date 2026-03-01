@@ -325,6 +325,22 @@ body {
   font-weight: 500;
 }
 
+.entry-images-btn {
+  background: #17a2b8;
+  color: white;
+  border: none;
+  border-radius: 3px;
+  padding: 2px 6px;
+  font-size: 9px;
+  cursor: pointer;
+  font-weight: 500;
+  transition: background 0.2s;
+}
+
+.entry-images-btn:hover {
+  background: #138496;
+}
+
 /* pop up messages */
 .message-area {
   margin-top: 8px;
