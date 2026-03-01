@@ -2,6 +2,8 @@
 // handles popup and content script comms
 // handles storage for captured entries
 
+import { askAI, testAIConnection, AI_MODELS, detectProvider, getModelsForProvider, PROVIDER_REGISTRY } from './ai-provider.js';
+
 // setup storage when extension starts
 chrome.runtime.onStartup.addListener(async () => {
   const result = await chrome.storage.local.get(["capturing", "entries"]);
@@ -148,6 +150,31 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     case "answerGForm":
       console.log("📝 Handling answerGForm");
       handleAnswerGForm(message.tabId, sendResponse);
+      return true;
+
+    case "getAISettings":
+      handleGetAISettings(sendResponse);
+      return true;
+
+    case "saveAISettings":
+      handleSaveAISettings(message.aiSettings, sendResponse);
+      return true;
+
+    case "testAI":
+      handleTestAI(message.aiSettings, sendResponse);
+      return true;
+
+    case "getAIModels":
+      sendResponse({
+        success: true,
+        models: AI_MODELS,
+        providers: PROVIDER_REGISTRY.map(p => ({ id: p.id, name: p.name })),
+      });
+      return true;
+
+    case "aiAutoAnswer":
+      console.log("🤖 Handling aiAutoAnswer");
+      handleAIAutoAnswer(message.tabId, sendResponse);
       return true;
   }
 });
@@ -797,4 +824,239 @@ function gformAutoAnswer() {
   } catch (error) {
     return { success: false, error: "Error processing form: " + error.message };
   }
+}
+
+// ====== AI AUTO-ANSWER HANDLERS ======
+
+// get AI settings from storage
+async function handleGetAISettings(sendResponse) {
+  try {
+    const result = await chrome.storage.local.get("aiSettings");
+    const aiSettings = result.aiSettings || {
+      provider: "gemini",
+      apiKey: "",
+      model: "",
+      customEndpoint: "",
+      delayMin: 1000,
+      delayMax: 3000,
+      autoNextPage: false,
+    };
+    sendResponse({ success: true, aiSettings });
+  } catch (error) {
+    sendResponse({ success: false, error: error.message });
+  }
+}
+
+// save AI settings
+async function handleSaveAISettings(aiSettings, sendResponse) {
+  try {
+    await chrome.storage.local.set({ aiSettings });
+    console.log("✅ AI settings saved:", aiSettings);
+    sendResponse({ success: true });
+  } catch (error) {
+    sendResponse({ success: false, error: error.message });
+  }
+}
+
+// test AI connection
+async function handleTestAI(aiSettings, sendResponse) {
+  try {
+    if (!aiSettings.apiKey) {
+      sendResponse({ success: false, error: "API key is required" });
+      return;
+    }
+    const result = await testAIConnection(aiSettings);
+    sendResponse(result);
+  } catch (error) {
+    sendResponse({ success: false, error: error.message });
+  }
+}
+
+// main AI auto-answer orchestrator
+async function handleAIAutoAnswer(tabId, sendResponse) {
+  console.log("🤖 Starting AI auto-answer...");
+
+  try {
+    // get AI settings
+    const settingsResult = await chrome.storage.local.get("aiSettings");
+    const aiSettings = settingsResult.aiSettings;
+
+    if (!aiSettings || !aiSettings.apiKey) {
+      sendResponse({ success: false, error: "Please configure AI settings first (API key required)." });
+      return;
+    }
+
+    // find target tab
+    let targetTab;
+    if (tabId) {
+      targetTab = await chrome.tabs.get(tabId);
+    } else {
+      const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
+      if (!tabs || tabs.length === 0) {
+        sendResponse({ success: false, error: "No active tab found" });
+        return;
+      }
+      targetTab = tabs[0];
+    }
+
+    console.log("🤖 Target tab:", targetTab.url);
+
+    // Step 1: Extract questions from page
+    console.log("📋 Step 1: Extracting questions...");
+    let questionsResponse;
+    try {
+      questionsResponse = await chrome.tabs.sendMessage(targetTab.id, {
+        action: "extractMoodleQuestions",
+      });
+    } catch (e) {
+      sendResponse({ success: false, error: "Could not connect to page. Try reloading the quiz page." });
+      return;
+    }
+
+    if (!questionsResponse || !questionsResponse.success) {
+      sendResponse({ success: false, error: "Failed to extract questions from page." });
+      return;
+    }
+
+    const questions = questionsResponse.questions || [];
+    if (questions.length === 0) {
+      sendResponse({ success: false, error: "No questions found on this page." });
+      return;
+    }
+
+    console.log(`📋 Found ${questions.length} question(s)`);
+
+    // Step 2: Process each question
+    let answeredCount = 0;
+    let skippedCount = 0;
+    const results = [];
+    const delayMin = aiSettings.delayMin || 1000;
+    const delayMax = aiSettings.delayMax || 3000;
+
+    for (let i = 0; i < questions.length; i++) {
+      const q = questions[i];
+      console.log(`\n🤖 Processing question ${i + 1}/${questions.length}...`);
+
+      if (q.choices.length === 0) {
+        console.log(`⏭️ Skipping Q${i + 1}: no choices (not multiple choice)`);
+        skippedCount++;
+        results.push({ question: q.text.substring(0, 50), status: "skipped", reason: "no choices" });
+        continue;
+      }
+
+      try {
+        // download question images if present
+        let imageBase64 = null;
+        if (q.images && q.images.length > 0) {
+          console.log(`📷 Downloading image for Q${i + 1}...`);
+          const downloaded = await downloadImagesAsBase64(q.images.slice(0, 1));
+          if (downloaded.length > 0) {
+            imageBase64 = downloaded[0].dataUrl;
+            console.log(`📷 Image downloaded (${downloaded[0].size} bytes)`);
+          }
+        }
+
+        // call AI
+        console.log(`🤖 Asking AI for Q${i + 1}...`);
+        const aiResult = await askAI(aiSettings, q.text, q.choices, imageBase64);
+        console.log(`🤖 AI answer: ${aiResult.answer} — ${aiResult.explanation}`);
+
+        if (!aiResult.answer || aiResult.answer.length !== 1) {
+          console.log(`⚠️ AI returned invalid answer: "${aiResult.answer}"`);
+          skippedCount++;
+          results.push({ question: q.text.substring(0, 50), status: "failed", reason: "invalid AI response" });
+          continue;
+        }
+
+        // verify answer letter is valid for available choices
+        const answerIndex = aiResult.answer.charCodeAt(0) - 65;
+        if (answerIndex < 0 || answerIndex >= q.choices.length) {
+          console.log(`⚠️ AI answer ${aiResult.answer} out of range (${q.choices.length} choices)`);
+          skippedCount++;
+          results.push({ question: q.text.substring(0, 50), status: "failed", reason: `answer ${aiResult.answer} invalid` });
+          continue;
+        }
+
+        // select the answer on page
+        console.log(`🎯 Selecting ${aiResult.answer} on page...`);
+        const selectResult = await chrome.tabs.sendMessage(targetTab.id, {
+          action: "selectMoodleChoice",
+          questionIndex: q.index,
+          answerLetter: aiResult.answer,
+        });
+
+        if (selectResult && selectResult.success) {
+          answeredCount++;
+          results.push({
+            question: q.text.substring(0, 50),
+            status: "answered",
+            answer: aiResult.answer,
+            explanation: aiResult.explanation,
+          });
+          console.log(`✅ Q${i + 1} answered: ${aiResult.answer}`);
+        } else {
+          skippedCount++;
+          results.push({ question: q.text.substring(0, 50), status: "failed", reason: selectResult?.error || "click failed" });
+        }
+
+      } catch (aiError) {
+        console.error(`❌ AI error for Q${i + 1}:`, aiError);
+
+        // retry once on rate limit
+        if (aiError.message && (aiError.message.includes("429") || aiError.message.includes("rate"))) {
+          console.log(`⏳ Rate limited, waiting 10s and retrying Q${i + 1}...`);
+          await sleep(10000);
+          try {
+            let imageBase64 = null;
+            if (q.images && q.images.length > 0) {
+              const downloaded = await downloadImagesAsBase64(q.images.slice(0, 1));
+              if (downloaded.length > 0) imageBase64 = downloaded[0].dataUrl;
+            }
+            const retryResult = await askAI(aiSettings, q.text, q.choices, imageBase64);
+            if (retryResult.answer) {
+              await chrome.tabs.sendMessage(targetTab.id, {
+                action: "selectMoodleChoice",
+                questionIndex: q.index,
+                answerLetter: retryResult.answer,
+              });
+              answeredCount++;
+              results.push({ question: q.text.substring(0, 50), status: "answered (retry)", answer: retryResult.answer });
+            }
+          } catch (retryErr) {
+            skippedCount++;
+            results.push({ question: q.text.substring(0, 50), status: "failed", reason: retryErr.message });
+          }
+        } else {
+          skippedCount++;
+          results.push({ question: q.text.substring(0, 50), status: "failed", reason: aiError.message });
+        }
+      }
+
+      // random delay between questions (except last one)
+      if (i < questions.length - 1) {
+        const delay = Math.floor(Math.random() * (delayMax - delayMin)) + delayMin;
+        console.log(`⏳ Waiting ${delay}ms before next question...`);
+        await sleep(delay);
+      }
+    }
+
+    console.log(`\n🤖 Auto-answer complete: ${answeredCount}/${questions.length} answered, ${skippedCount} skipped`);
+
+    sendResponse({
+      success: true,
+      answeredCount,
+      skippedCount,
+      totalQuestions: questions.length,
+      results,
+    });
+
+  } catch (error) {
+    console.error("❌ AI auto-answer error:", error);
+    sendResponse({ success: false, error: error.message });
+  }
+}
+
+// helper sleep function
+function sleep(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
 }

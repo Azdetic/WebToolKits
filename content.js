@@ -13,9 +13,217 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     }).catch((error) => {
       sendResponse({ success: false, error: error.message });
     });
+  } else if (message.action === "extractMoodleQuestions") {
+    const questions = extractMoodleQuestions();
+    sendResponse({ success: true, questions });
+  } else if (message.action === "selectMoodleChoice") {
+    const result = selectMoodleChoice(message.questionIndex, message.answerLetter);
+    sendResponse(result);
   }
   return true;
 });
+
+// ========== MOODLE QUIZ EXTRACTION ==========
+
+// shared: get question blocks consistently
+function getMoodleQuestionBlocks() {
+  // Priority 1: .que is the standard Moodle question container
+  let blocks = document.querySelectorAll(".que");
+
+  // Priority 2: elements with id starting with "question-"
+  if (blocks.length === 0) {
+    blocks = document.querySelectorAll("[id^='question-']");
+  }
+
+  // Priority 3: broader search - look for question containers in content
+  if (blocks.length === 0) {
+    blocks = document.querySelectorAll(".question");
+  }
+
+  console.log(`📋 getMoodleQuestionBlocks: found ${blocks.length} block(s)`);
+  return blocks;
+}
+
+// extract all questions from current Moodle quiz page
+function extractMoodleQuestions() {
+  console.log("🔍 Scanning Moodle page for questions...");
+
+  const questions = [];
+  const blocks = getMoodleQuestionBlocks();
+
+  blocks.forEach((block, index) => {
+    try {
+      // get question text from .qtext (standard Moodle)
+      const qTextEl = block.querySelector(".qtext") ||
+                       block.querySelector(".questiontext") ||
+                       block.querySelector(".formulation");
+
+      if (!qTextEl) {
+        console.log(`⏭️ Q${index}: no question text element found, skipping`);
+        return;
+      }
+
+      // clone and remove answer section to get only question text
+      const cloned = qTextEl.cloneNode(true);
+      const clonedAnswers = cloned.querySelector(".answer, .ablock");
+      if (clonedAnswers) clonedAnswers.remove();
+      const questionText = (cloned.innerText || cloned.textContent || "").trim();
+
+      // get images in question
+      const images = [];
+      const processedSrcs = new Set();
+      const imgElements = qTextEl.querySelectorAll("img");
+      for (const img of imgElements) {
+        const src = img.src || "";
+        if (!src || processedSrcs.has(src)) continue;
+        if (src.includes("i/unflagged") || src.includes("i/flagged")) continue;
+        const w = img.naturalWidth || img.width || 0;
+        const h = img.naturalHeight || img.height || 0;
+        if (w > 0 && w < 40 && h > 0 && h < 40) continue;
+        processedSrcs.add(src);
+        images.push({ src, alt: img.alt || "" });
+      }
+
+      // get answer choices from radio/checkbox inputs
+      const choices = [];
+      const answerBlock = block.querySelector(".answer") || block.querySelector(".ablock");
+
+      if (answerBlock) {
+        const inputs = answerBlock.querySelectorAll('input[type="radio"], input[type="checkbox"]');
+        inputs.forEach((input, i) => {
+          // find label text: try multiple approaches
+          let labelText = "";
+
+          // approach 1: label with matching for attribute
+          const labelFor = document.querySelector(`label[for="${input.id}"]`);
+          if (labelFor) {
+            labelText = labelFor.innerText.trim();
+          }
+
+          // approach 2: closest parent label
+          if (!labelText) {
+            const parentLabel = input.closest("label");
+            if (parentLabel) {
+              labelText = parentLabel.innerText.trim();
+            }
+          }
+
+          // approach 3: sibling or parent div text
+          if (!labelText) {
+            const container = input.closest("div.r0, div.r1, div.flex-fill, div") ||
+                              input.parentElement;
+            if (container) {
+              const textEl = container.querySelector(".flex-fill, .ml-1, label, span");
+              labelText = textEl ? textEl.innerText.trim() : container.innerText.trim();
+            }
+          }
+
+          // clean up prefixes like "a. " or "A. "
+          labelText = labelText.replace(/^[a-d]\.\s*/i, "").trim();
+
+          const letter = String.fromCharCode(65 + i); // A, B, C, D
+          choices.push({
+            letter,
+            text: labelText,
+            inputId: input.id,
+            inputName: input.name,
+            inputValue: input.value,
+          });
+        });
+      }
+
+      if (questionText || choices.length > 0) {
+        questions.push({
+          index: index, // matches getMoodleQuestionBlocks() index
+          text: questionText.substring(0, 2000),
+          choices,
+          images,
+          hasImage: images.length > 0,
+        });
+        console.log(`📝 Q${index + 1}: "${questionText.substring(0, 60)}..." | ${choices.length} choices | ${images.length} images`);
+      }
+    } catch (err) {
+      console.error(`❌ Error extracting question ${index}:`, err);
+    }
+  });
+
+  console.log(`✅ Extracted ${questions.length} question(s)`);
+  return questions;
+}
+
+// select an answer choice on the page
+function selectMoodleChoice(questionIndex, answerLetter) {
+  console.log(`🎯 Selecting answer ${answerLetter} for question ${questionIndex + 1}`);
+
+  try {
+    // use same block finder as extraction
+    const blocks = getMoodleQuestionBlocks();
+
+    const block = blocks[questionIndex];
+    if (!block) {
+      return { success: false, error: `Question block ${questionIndex} not found (${blocks.length} blocks total)` };
+    }
+
+    const answerBlock = block.querySelector(".answer") || block.querySelector(".ablock");
+    if (!answerBlock) {
+      return { success: false, error: "Answer block not found in question" };
+    }
+
+    const inputs = answerBlock.querySelectorAll('input[type="radio"], input[type="checkbox"]');
+    const targetIndex = answerLetter.charCodeAt(0) - 65; // A=0, B=1, C=2, D=3
+
+    if (targetIndex < 0 || targetIndex >= inputs.length) {
+      return { success: false, error: `Answer ${answerLetter} (index ${targetIndex}) out of range, only ${inputs.length} choices` };
+    }
+
+    const targetInput = inputs[targetIndex];
+    console.log(`🎯 Found input: id=${targetInput.id}, name=${targetInput.name}, value=${targetInput.value}`);
+
+    // ROBUST CLICK: try multiple strategies for Moodle Remui
+
+    // Strategy 1: click the aria-labelledby div (Moodle Remui pattern)
+    const ariaLabel = targetInput.getAttribute("aria-labelledby");
+    if (ariaLabel) {
+      const labelDiv = document.getElementById(ariaLabel);
+      if (labelDiv) {
+        console.log("🖱️ Clicking aria-labelledby div");
+        labelDiv.click();
+      }
+    }
+
+    // Strategy 2: click label[for] if exists
+    const labelFor = document.querySelector(`label[for="${targetInput.id}"]`);
+    if (labelFor) {
+      console.log("🖱️ Clicking label[for]");
+      labelFor.click();
+    }
+
+    // Strategy 3: click the parent .r0/.r1 container
+    const answerRow = targetInput.closest(".r0, .r1");
+    if (answerRow) {
+      console.log("🖱️ Clicking answer row container");
+      answerRow.click();
+    }
+
+    // Strategy 4: click the input directly
+    targetInput.click();
+
+    // Strategy 5: force set checked + dispatch all events
+    targetInput.checked = true;
+    targetInput.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+    targetInput.dispatchEvent(new Event("change", { bubbles: true }));
+    targetInput.dispatchEvent(new Event("input", { bubbles: true }));
+
+    // verify it was selected
+    const isChecked = targetInput.checked;
+    console.log(`${isChecked ? "✅" : "⚠️"} Input checked state: ${isChecked}`);
+
+    return { success: true, verified: isChecked };
+  } catch (error) {
+    console.error(`❌ Error selecting answer:`, error);
+    return { success: false, error: error.message };
+  }
+}
 
 // main function to catch content
 function captureMainContent() {

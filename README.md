@@ -34,14 +34,16 @@ Select multiple captured entries, merge them into a single formatted text block,
 - Supports both the modern Clipboard API and a legacy fallback for older browsers
 - If both clipboard methods fail, a manual copy dialog appears as a last resort
 
-### <img src="https://img.shields.io/badge/3-GForm_Solver-00897b?style=flat-square" alt="3" /> Google Form Auto-Answer
+### <img src="https://img.shields.io/badge/3-AI_Auto--Answer-00897b?style=flat-square" alt="3" /> AI-Powered Auto-Answer
 
-Detects quiz answers embedded in Google Forms and fills them in automatically
+Detects quiz questions (Google Forms & Moodle) and answers them automatically using Advanced AI models!
 
-- Reads the hidden `FB_PUBLIC_LOAD_DATA_` variable that Google Forms uses to store answer keys
-- Works with **multiple choice**, **checkboxes**, **short answer**, **paragraph**, and **dropdown** question types
-- Handles response validation rules (passwords, access codes, number matching)
-- Uses a content script isolation workaround (injects into the page's MAIN world via a `<script>` tag, then passes data back through a CustomEvent)
+- Supports multiple AI providers: **Google Gemini**, **Groq (Llama)**, **OpenAI (ChatGPT)**, and **DeepSeek**
+- **Auto-detects API keys** and configures the best model automatically
+- **Multimodal (Vision) Support**: Can read and analyze questions that contain images or code screenshots (supported by Gemini, Groq, and OpenAI)
+- Features a **human-like delay** system (configurable Min/Max) so answers aren't submitted instantly, avoiding bot detection
+- Works with Google Forms (reads hidden `FB_PUBLIC_LOAD_DATA_`) and Moodle Remui LMS (smart DOM extraction)
+- Handles complex interactions like selecting radio buttons, checkboxes, and bypassing response validation rules
 
 ---
 
@@ -133,15 +135,17 @@ Time: 2/26/2026, 2:35:00 PM
 
 You can toggle which metadata fields appear (title, URL, time) in **Settings**
 
-### Auto-Answering Google Forms
+### Auto-Answering Quizzes (Google Forms & Moodle)
 
-1. Open any Google Form quiz in your browser
-2. Click the WebToolKit icon
-3. Press **Answer GForm**
-4. WebToolKit reads the embedded answer key and fills in the correct answers
-5. A success message tells you how many questions were answered
+1. Open the WebToolKit extension popup and click the **⚙️ AI Settings** gear icon
+2. Paste your API Key (**Gemini**, **Groq**, **OpenAI**, or **DeepSeek**)
+3. The extension will auto-detect the provider and select the best model (e.g., *Gemini 2.0 Flash* or *Llama 4 Scout* for vision support)
+4. Set your preferred **Human-like Delay (Min/Max)** to avoid bot detection (e.g., 2s - 5s per question)
+5. Open a Google Form quiz or Moodle quiz page in your browser
+6. Click the WebToolKit icon and press **🤖 AI Auto Answer**
+7. Sit back! The AI will read the questions (including images!), stream the answers, and select the correct choices for you automatically
 
-> This only works on forms that **have an answer key** (typically quiz-mode forms where answers are stored in the page data)
+> **Note on Providers:** Using models with **Vision capabilities** (like Gemini or Groq) is highly recommended for quizzes that contain images or screenshots. All API communication happens locally from your browser to the provider; we do not store your keys.
 
 ---
 
@@ -188,18 +192,20 @@ When capturing a page, `content.js` scores every potential content block using t
 
 The element with the highest score wins and gets extracted
 
-### <img src="https://img.shields.io/badge/-GForm_Flow-00897b?style=flat-square" alt="GForm" /> Google Form Data Flow
+### <img src="https://img.shields.io/badge/-AI_Auto--Answer_Flow-00897b?style=flat-square" alt="GForm" /> AI Auto-Answer Data Flow
 
 ```
-1. content.js injects a <script> tag into the page (MAIN world)
-2. The injected script reads FB_PUBLIC_LOAD_DATA_ (the answer key)
-3. Data is passed back via CustomEvent ('__gform_data_result__')
-4. content.js receives the data in the ISOLATED world
-5. Answers are parsed and matched to DOM elements
-6. Form fields are filled programmatically using native setters
+1. User configures API Key in popup.js 
+2. content.js scans the DOM for supported quiz containers (Moodle or Google Forms)
+3. Extracts question text, choices, and any base64/URL images within the block
+4. Sends payload to background.js, which delegates to ai-provider.js
+5. ai-provider.js formats the prompt (adding multimodal parts if Vision is supported)
+6. Calls the respective AI API (Gemini/Groq/OpenAI/DeepSeek)
+7. AI responds with the correct choice text or index
+8. content.js simulates human clicks (using label[for], aria-labelledby, and Event dispatchers) after a randomized delay
 ```
 
-If the injected script approach fails, it falls back to parsing `<script>` tags directly using bracket counting to extract the JSON data
+For Google Forms, if the answers are already embedded in the page's payload (`FB_PUBLIC_LOAD_DATA_`), WebToolKit can bypass the AI entirely and solve it instantly using a script injection workaround.
 
 ---
 
@@ -268,9 +274,10 @@ After making code changes, go to `edge://extensions/` and click the reload butto
 
 - Cannot capture `chrome://`, `edge://`, `about:`, or `file://` pages (browser restriction)
 - Cannot capture extension pages or pages with strict Content Security Policy
-- Google Form auto-answer only works when the form has a visible answer key (quiz mode)
 - Storage is local only so entries do not sync between devices
 - Very large pages may be trimmed to 100KB
+- AI Auto-Answer accuracy highly depends on the selected AI model (Gemini/Groq recommended for image questions)
+- DeepSeek API requires a paid balance (Free Tier is not available for API usage)
 
 ---
 

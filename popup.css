@@ -170,6 +170,26 @@ body {
   background: #00695c;
 }
 
+.btn-ai {
+  background: #e91e63;
+  color: white;
+  border-color: #e91e63;
+}
+
+.btn-ai:hover:not(:disabled) {
+  background: #c2185b;
+}
+
+.btn-ai-settings {
+  background: #7c4dff;
+  color: white;
+  border-color: #7c4dff;
+}
+
+.btn-ai-settings:hover:not(:disabled) {
+  background: #651fff;
+}
+
 /* controls styling */
 .entry-controls {
   margin-bottom: 8px;
@@ -182,6 +202,7 @@ body {
   display: flex;
   gap: 6px;
   margin-bottom: 4px;
+  flex-wrap: wrap;
 }
 
 .data-controls {

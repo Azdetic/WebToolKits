@@ -33,20 +33,21 @@
         </div>
         <div class="data-controls">
           <button id="exportBtn" class="btn btn-small">Export JSON</button>
-          <button id="importBtn" class="btn btn-small">Import JSON</button>
+          <button id="importBtn" class="btn btn-small" style="display: none;">Import JSON</button>
           <input
             type="file"
             id="importFile"
             accept=".json"
             title="Import JSON file"
+            style="display: none;"
           />
           <button id="clearAllBtn" class="btn btn-danger btn-small">
             Clear All
           </button>
-          <button id="testCopyBtn" class="btn btn-small btn-test">
+          <button id="testCopyBtn" class="btn btn-small btn-test" style="display: none;">
             Test Copy
           </button>
-          <button id="debugBtn" class="btn btn-small btn-debug">
+          <button id="debugBtn" class="btn btn-small btn-debug" style="display: none;">
             Debug Info
           </button>
           <button id="settingsBtn" class="btn btn-small btn-settings">
@@ -54,6 +55,12 @@
           </button>
           <button id="gformBtn" class="btn btn-small btn-gform">
             Answer GForm
+          </button>
+          <button id="aiAutoBtn" class="btn btn-small btn-ai">
+            🤖 AI Auto Answer
+          </button>
+          <button id="aiSettingsBtn" class="btn btn-small btn-ai-settings">
+            ⚙️ AI Settings
           </button>
         </div>
       </div>

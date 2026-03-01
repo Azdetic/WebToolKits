@@ -68,6 +68,12 @@ class WebToolKit {
     document
       .getElementById("gformBtn")
       .addEventListener("click", () => this.answerGForm());
+    document
+      .getElementById("aiAutoBtn")
+      .addEventListener("click", () => this.aiAutoAnswer());
+    document
+      .getElementById("aiSettingsBtn")
+      .addEventListener("click", () => this.showAISettings());
   }
 
   async loadState() {
@@ -1230,6 +1236,316 @@ chrome.storage.local.get(['capturing', 'entries'], console.log)
       : `question-image-${index + 1}`;
     link.download = `${filename}.png`;
     link.click();
+  }
+
+  // Show AI Settings modal
+  async showAISettings() {
+    const existing = document.getElementById("aiSettingsModal");
+    if (existing) existing.remove();
+
+    const settingsResp = await this.sendMessage({ action: "getAISettings" });
+    const modelsResp = await this.sendMessage({ action: "getAIModels" });
+
+    const s = settingsResp?.aiSettings || {
+      provider: "auto", apiKey: "", model: "", customEndpoint: "",
+      delayMin: 1000, delayMax: 3000, autoNextPage: false,
+    };
+    const allModels = modelsResp?.models || {};
+    const providers = modelsResp?.providers || [];
+
+    const modal = document.createElement("div");
+    modal.id = "aiSettingsModal";
+    modal.style.cssText = `
+      position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+      background: rgba(0,0,0,0.7); z-index: 10000;
+      display: flex; align-items: center; justify-content: center;
+    `;
+
+    const mc = document.createElement("div");
+    mc.style.cssText = `
+      background: white; padding: 18px; border-radius: 8px;
+      max-width: 420px; width: 95%; max-height: 90%; overflow-y: auto;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+    `;
+
+    const buildModelOptions = (provider) => {
+      const models = allModels[provider] || [{ id: "default", name: "Default" }];
+      return models.map(m =>
+        `<option value="${m.id}" ${s.model === m.id ? "selected" : ""}>${m.name}</option>`
+      ).join("");
+    };
+
+    const providerOptions = providers.map(p =>
+      `<option value="${p.id}" ${s.provider === p.id ? "selected" : ""}>${p.name}</option>`
+    ).join("");
+
+    const sliderStyle = `
+      -webkit-appearance: none; width: 100%; height: 6px;
+      background: #ddd; border-radius: 3px; outline: none;
+      cursor: pointer;
+    `;
+
+    mc.innerHTML = `
+      <h3 style="margin-top:0; color:#333;">🤖 AI Auto-Answer Settings</h3>
+
+      <div style="margin-bottom:12px;">
+        <label style="font-size:11px; font-weight:600; color:#555;">API Key</label>
+        <input type="password" id="aiApiKey" value="${this.escapeHtml(s.apiKey)}"
+               placeholder="Paste API key — provider auto-detected..."
+               style="width:100%; padding:6px; border:1px solid #ccc; border-radius:4px; font-size:12px; box-sizing:border-box;">
+        <div id="aiDetectedProvider" style="margin-top:4px; font-size:10px; color:#28a745;"></div>
+      </div>
+
+      <div style="margin-bottom:12px;">
+        <label style="font-size:11px; font-weight:600; color:#555;">Provider</label>
+        <select id="aiProvider" style="width:100%; padding:6px; border:1px solid #ccc; border-radius:4px; font-size:12px;">
+          <option value="auto" ${!s.provider || s.provider === "auto" ? "selected" : ""}>🔍 Auto-detect from API key</option>
+          ${providerOptions}
+          <option value="custom" ${s.provider === "custom" ? "selected" : ""}>Custom (OpenAI-compatible)</option>
+        </select>
+      </div>
+
+      <div style="margin-bottom:12px;">
+        <label style="font-size:11px; font-weight:600; color:#555;">Model</label>
+        <select id="aiModel" style="width:100%; padding:6px; border:1px solid #ccc; border-radius:4px; font-size:12px;">
+          ${buildModelOptions(s.provider === "auto" ? "gemini" : s.provider)}
+        </select>
+      </div>
+
+      <div id="customEndpointDiv" style="margin-bottom:12px; ${s.provider === "custom" ? "" : "display:none;"}">
+        <label style="font-size:11px; font-weight:600; color:#555;">Custom Endpoint URL</label>
+        <input type="text" id="aiCustomEndpoint" value="${this.escapeHtml(s.customEndpoint)}"
+               placeholder="https://api.example.com/v1"
+               style="width:100%; padding:6px; border:1px solid #ccc; border-radius:4px; font-size:12px; box-sizing:border-box;">
+      </div>
+
+      <div style="margin-bottom:8px;">
+        <label style="font-size:11px; font-weight:600; color:#555;">Delay Min: <span id="delayMinLabel">${(s.delayMin / 1000).toFixed(1)}s</span></label>
+        <input type="range" id="aiDelayMin" min="0" max="10000" step="100" value="${s.delayMin}"
+               style="${sliderStyle}">
+      </div>
+
+      <div style="margin-bottom:12px;">
+        <label style="font-size:11px; font-weight:600; color:#555;">Delay Max: <span id="delayMaxLabel">${(s.delayMax / 1000).toFixed(1)}s</span></label>
+        <input type="range" id="aiDelayMax" min="0" max="10000" step="100" value="${s.delayMax}"
+               style="${sliderStyle}">
+      </div>
+
+      <div style="margin-bottom:16px;">
+        <label style="display:flex; align-items:center; cursor:pointer; font-size:12px;">
+          <input type="checkbox" id="aiAutoNextPage" ${s.autoNextPage ? "checked" : ""}
+                 style="margin-right:8px;">
+          <span>Auto navigate to next page</span>
+        </label>
+        <small style="color:#888; margin-left:24px; display:block;">Auto-click 'Next page' after answering</small>
+      </div>
+
+      <div style="display:flex; gap:8px; justify-content:space-between;">
+        <button id="aiTestBtn" style="padding:6px 14px; background:#17a2b8; color:white; border:none; border-radius:4px; cursor:pointer; font-size:11px;">
+          🔌 Test API
+        </button>
+        <div style="display:flex; gap:8px;">
+          <button id="aiCancelBtn" style="padding:6px 14px; background:#6c757d; color:white; border:none; border-radius:4px; cursor:pointer; font-size:11px;">Cancel</button>
+          <button id="aiSaveBtn" style="padding:6px 14px; background:#28a745; color:white; border:none; border-radius:4px; cursor:pointer; font-size:11px;">💾 Save</button>
+        </div>
+      </div>
+      <div id="aiTestResult" style="margin-top:10px; font-size:11px;"></div>
+    `;
+
+    modal.appendChild(mc);
+    document.body.appendChild(modal);
+
+    // === slider labels live update ===
+    document.getElementById("aiDelayMin").addEventListener("input", (e) => {
+      document.getElementById("delayMinLabel").textContent = (e.target.value / 1000).toFixed(1) + "s";
+      // enforce min <= max
+      const maxSlider = document.getElementById("aiDelayMax");
+      if (parseInt(e.target.value) > parseInt(maxSlider.value)) {
+        maxSlider.value = e.target.value;
+        document.getElementById("delayMaxLabel").textContent = (e.target.value / 1000).toFixed(1) + "s";
+      }
+    });
+    document.getElementById("aiDelayMax").addEventListener("input", (e) => {
+      document.getElementById("delayMaxLabel").textContent = (e.target.value / 1000).toFixed(1) + "s";
+      const minSlider = document.getElementById("aiDelayMin");
+      if (parseInt(e.target.value) < parseInt(minSlider.value)) {
+        minSlider.value = e.target.value;
+        document.getElementById("delayMinLabel").textContent = (e.target.value / 1000).toFixed(1) + "s";
+      }
+    });
+
+    // === API key auto-detect ===
+    const detectFromKey = () => {
+      const key = document.getElementById("aiApiKey").value;
+      const detectDiv = document.getElementById("aiDetectedProvider");
+      const providerSelect = document.getElementById("aiProvider");
+
+      if (!key) {
+        detectDiv.innerHTML = "";
+        return;
+      }
+
+      // simple client-side detection by key prefix
+      let detected = null;
+      if (key.startsWith("AIza")) detected = { id: "gemini", name: "Google Gemini" };
+      else if (key.startsWith("gsk_")) detected = { id: "groq", name: "Groq" };
+      else if (key.startsWith("sk-")) detected = { id: "openai", name: "OpenAI / DeepSeek" };
+
+      if (detected) {
+        detectDiv.innerHTML = `<span style="color:#28a745;">🔍 Detected: <b>${detected.name}</b></span>`;
+        // auto-update provider select and models if on auto
+        if (providerSelect.value === "auto") {
+          const modelSelect = document.getElementById("aiModel");
+          const models = allModels[detected.id] || [{ id: "default", name: "Default" }];
+          modelSelect.innerHTML = models.map(m => `<option value="${m.id}">${m.name}</option>`).join("");
+        }
+      } else {
+        detectDiv.innerHTML = `<span style="color:#ffc107;">⚠️ Unknown key format — set provider manually</span>`;
+      }
+    };
+
+    document.getElementById("aiApiKey").addEventListener("input", detectFromKey);
+    detectFromKey(); // run once on load
+
+    // === provider change ===
+    document.getElementById("aiProvider").addEventListener("change", (e) => {
+      const provider = e.target.value;
+      const modelSelect = document.getElementById("aiModel");
+      if (provider === "auto") {
+        detectFromKey(); // re-detect from key
+      } else {
+        const models = allModels[provider] || [{ id: "default", name: "Default" }];
+        modelSelect.innerHTML = models.map(m => `<option value="${m.id}">${m.name}</option>`).join("");
+      }
+      document.getElementById("customEndpointDiv").style.display = provider === "custom" ? "" : "none";
+    });
+
+    // === test button ===
+    document.getElementById("aiTestBtn").addEventListener("click", async () => {
+      const resultDiv = document.getElementById("aiTestResult");
+      resultDiv.innerHTML = `<span style="color:#17a2b8;">⏳ Testing connection...</span>`;
+
+      const testSettings = {
+        provider: document.getElementById("aiProvider").value,
+        apiKey: document.getElementById("aiApiKey").value,
+        customEndpoint: document.getElementById("aiCustomEndpoint").value,
+      };
+
+      const result = await this.sendMessage({ action: "testAI", aiSettings: testSettings });
+      if (result && result.success) {
+        resultDiv.innerHTML = `<span style="color:#28a745;">✅ ${result.message || "Connection valid!"}</span>`;
+      } else {
+        resultDiv.innerHTML = `<span style="color:#dc3545;">❌ ${result?.error || "Connection failed"}</span>`;
+      }
+    });
+
+    // === save button ===
+    document.getElementById("aiSaveBtn").addEventListener("click", async () => {
+      const aiSettings = {
+        provider: document.getElementById("aiProvider").value,
+        apiKey: document.getElementById("aiApiKey").value,
+        model: document.getElementById("aiModel").value,
+        customEndpoint: document.getElementById("aiCustomEndpoint").value,
+        delayMin: parseInt(document.getElementById("aiDelayMin").value) || 1000,
+        delayMax: parseInt(document.getElementById("aiDelayMax").value) || 3000,
+        autoNextPage: document.getElementById("aiAutoNextPage").checked,
+      };
+
+      const result = await this.sendMessage({ action: "saveAISettings", aiSettings });
+      if (result && result.success) {
+        this.showMessage("AI settings saved! ✅", "success");
+        modal.remove();
+      } else {
+        this.showMessage("Failed to save: " + (result?.error || "unknown"), "error");
+      }
+    });
+
+    // cancel + close
+    document.getElementById("aiCancelBtn").addEventListener("click", () => modal.remove());
+    modal.addEventListener("click", (e) => { if (e.target === modal) modal.remove(); });
+  }
+
+  // Trigger AI auto-answer
+  async aiAutoAnswer() {
+    try {
+      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+      if (!tab) {
+        this.showMessage("No active tab found.", "error");
+        return;
+      }
+
+      this.showMessage("🤖 AI Auto-Answer starting... Please wait.", "info");
+
+      const response = await this.sendMessage({
+        action: "aiAutoAnswer",
+        tabId: tab.id,
+      });
+
+      if (response && response.success) {
+        // show results modal
+        let resultsHtml = `<h3 style="margin-top:0; color:#333;">🤖 Auto-Answer Results</h3>`;
+        resultsHtml += `<p style="color:#28a745; font-weight:bold;">✅ ${response.answeredCount}/${response.totalQuestions} questions answered</p>`;
+
+        if (response.skippedCount > 0) {
+          resultsHtml += `<p style="color:#ffc107;">⚠️ ${response.skippedCount} skipped</p>`;
+        }
+
+        if (response.results && response.results.length > 0) {
+          resultsHtml += `<div style="max-height:200px; overflow-y:auto; border:1px solid #ddd; border-radius:4px; padding:8px; margin-top:10px;">`;
+          response.results.forEach((r, i) => {
+            const icon = r.status === "answered" || r.status === "answered (retry)" ? "✅" :
+                         r.status === "skipped" ? "⏭️" : "❌";
+            const color = r.status.includes("answered") ? "#28a745" : r.status === "skipped" ? "#ffc107" : "#dc3545";
+            resultsHtml += `
+              <div style="font-size:11px; margin-bottom:6px; padding:4px; border-bottom:1px solid #eee;">
+                <span style="color:${color}; font-weight:bold;">${icon} Q${i + 1}</span>
+                ${r.answer ? `<span style="background:#e91e63; color:white; padding:1px 6px; border-radius:3px; font-size:10px; margin-left:4px;">${r.answer}</span>` : ""}
+                <span style="color:#666;"> ${r.question}...</span>
+                ${r.explanation ? `<br><small style="color:#888; margin-left:20px;">${r.explanation}</small>` : ""}
+                ${r.reason ? `<br><small style="color:#dc3545; margin-left:20px;">${r.reason}</small>` : ""}
+              </div>`;
+          });
+          resultsHtml += `</div>`;
+        }
+
+        this.showManualCopyModal("", 0, "Auto-Answer Results");
+        // replace the manual copy modal content
+        const existingModal = document.getElementById("manualCopyModal");
+        if (existingModal) existingModal.remove();
+
+        const modal = document.createElement("div");
+        modal.id = "aiResultsModal";
+        modal.style.cssText = `
+          position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+          background: rgba(0,0,0,0.7); z-index: 10000;
+          display: flex; align-items: center; justify-content: center;
+        `;
+        const mc = document.createElement("div");
+        mc.style.cssText = `
+          background: white; padding: 18px; border-radius: 8px;
+          max-width: 400px; width: 95%; box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+        `;
+        mc.innerHTML = resultsHtml + `
+          <div style="text-align:right; margin-top:12px;">
+            <button id="closeAiResultsBtn" style="padding:6px 14px; background:#6c757d; color:white; border:none; border-radius:4px; cursor:pointer;">Close</button>
+          </div>`;
+        modal.appendChild(mc);
+        document.body.appendChild(modal);
+
+        document.getElementById("closeAiResultsBtn").addEventListener("click", () => modal.remove());
+        modal.addEventListener("click", (e) => { if (e.target === modal) modal.remove(); });
+
+        this.showMessage(
+          `🤖 Auto-answered ${response.answeredCount}/${response.totalQuestions} question(s)!`,
+          "success"
+        );
+      } else {
+        this.showMessage(`❌ ${response?.error || "Auto-answer failed"}`, "error");
+      }
+    } catch (error) {
+      console.error("❌ AI auto-answer error:", error);
+      this.showMessage("❌ Error: " + error.message, "error");
+    }
   }
 }
 
