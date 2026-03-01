@@ -6,9 +6,12 @@ import { askAI, testAIConnection, AI_MODELS, detectProvider, getModelsForProvide
 
 // setup storage when extension starts
 chrome.runtime.onStartup.addListener(async () => {
-  const result = await chrome.storage.local.get(["capturing", "entries"]);
+  const result = await chrome.storage.local.get(["capturing", "entries", "aiAutoActive"]);
   if (result.capturing === undefined) {
     await chrome.storage.local.set({ capturing: false });
+  }
+  if (result.aiAutoActive === undefined) {
+    await chrome.storage.local.set({ aiAutoActive: false });
   }
   if (!result.entries) {
     await chrome.storage.local.set({ entries: [] });
@@ -19,9 +22,13 @@ chrome.runtime.onStartup.addListener(async () => {
 chrome.runtime.onInstalled.addListener(async () => {
   await chrome.storage.local.set({
     capturing: false,
+    aiAutoActive: false,
     entries: [],
   });
 });
+
+// track tabs that are auto-answering across pages
+const autoAnsweringQueue = new Set();
 
 // auto capture listents to tab updates when active
 chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
@@ -44,6 +51,34 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
   if (!tab || !tab.url) {
     console.log("⏭️ Skipping - no tab or URL");
     return;
+  }
+
+  // Check if this tab is in the auto-answer queue
+  if (autoAnsweringQueue.has(tabId)) {
+    console.log("🤖 Tab is in auto-answer queue, triggering handleAIAutoAnswer for:", tab.url);
+    // remove from queue so it doesn't loop forever if it fails
+    autoAnsweringQueue.delete(tabId);
+    
+    // Add a slight delay to ensure scripts are fully loaded
+    setTimeout(() => {
+      handleAIAutoAnswer(tabId, (res) => {
+        console.log("🤖 Auto-answer queue response:", res);
+      });
+    }, 1500);
+  } else {
+    // Alternatively, check if the global AI Auto-Answer toggle is ON
+    chrome.storage.local.get("aiAutoActive").then(result => {
+      if (result.aiAutoActive && tab.url && tab.url.includes("/mod/quiz/attempt.php")) {
+        console.log("🤖 Global AI Auto-Answer is ON, triggering handleAIAutoAnswer for:", tab.url);
+        
+        // Add a slight delay to ensure scripts are fully loaded
+        setTimeout(() => {
+          handleAIAutoAnswer(tabId, (res) => {
+            console.log("🤖 Global Auto-answer response:", res);
+          });
+        }, 1500);
+      }
+    });
   }
 
   console.log("🔄 Processing tab update for:", tab.url);
@@ -175,6 +210,33 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     case "aiAutoAnswer":
       console.log("🤖 Handling aiAutoAnswer");
       handleAIAutoAnswer(message.tabId, sendResponse);
+      return true;
+      
+    case "getAIAutoActive":
+      chrome.storage.local.get("aiAutoActive").then(res => {
+        sendResponse({ success: true, aiAutoActive: res.aiAutoActive || false });
+      }).catch(err => {
+        sendResponse({ success: false, error: err.message });
+      });
+      return true;
+
+    case "setAIAutoActive":
+      chrome.storage.local.set({ aiAutoActive: message.active }).then(() => {
+        console.log("🤖 Global AI Auto Active set to:", message.active);
+        sendResponse({ success: true });
+        
+        // If turned ON, attempt to execute on the current active tab immediately
+        if (message.active) {
+          chrome.tabs.query({ active: true, currentWindow: true }).then(tabs => {
+            if (tabs && tabs.length > 0 && tabs[0].url && tabs[0].url.includes("/mod/quiz/attempt.php")) {
+              console.log("🤖 Triggering immediately on current tab since toggle turned ON");
+              handleAIAutoAnswer(tabs[0].id, () => {});
+            }
+          });
+        }
+      }).catch(err => {
+        sendResponse({ success: false, error: err.message });
+      });
       return true;
   }
 });
@@ -1042,11 +1104,34 @@ async function handleAIAutoAnswer(tabId, sendResponse) {
 
     console.log(`\n🤖 Auto-answer complete: ${answeredCount}/${questions.length} answered, ${skippedCount} skipped`);
 
+    let nextClicked = false;
+    
+    // Check autoNextPage setting
+    if (aiSettings.autoNextPage && answeredCount > 0) {
+      console.log("➡️ Auto Next Page is ON, attempting to click next page...");
+      try {
+        const nextResult = await chrome.tabs.sendMessage(targetTab.id, {
+          action: "clickNextPage"
+        });
+        
+        if (nextResult && nextResult.success) {
+          console.log("✅ Next page clicked successfully, adding tab to queue.");
+          autoAnsweringQueue.add(targetTab.id);
+          nextClicked = true;
+        } else {
+          console.log("⚠️ Next page button not found or failed to click:", nextResult?.error);
+        }
+      } catch (e) {
+        console.error("❌ Failed to send clickNextPage message:", e);
+      }
+    }
+
     sendResponse({
       success: true,
       answeredCount,
       skippedCount,
       totalQuestions: questions.length,
+      nextClicked,
       results,
     });
 

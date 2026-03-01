@@ -138,14 +138,19 @@ You can toggle which metadata fields appear (title, URL, time) in **Settings**
 ### Auto-Answering Quizzes (Google Forms & Moodle)
 
 1. Open the WebToolKit extension popup and click the **⚙️ AI Settings** gear icon
-2. Paste your API Key (**Gemini**, **Groq**, **OpenAI**, or **DeepSeek**)
+2. Paste your API Key. You can get a free API key from these providers:
+   - **Google Gemini:** [Google AI Studio](https://aistudio.google.com/app/apikey) (Recommended, has Free Tier)
+   - **Groq:** [Groq Console](https://console.groq.com/keys) (Super fast, has Free Tier)
+   - **OpenAI:** [OpenAI Platform](https://platform.openai.com/api-keys) (Paid)
+   - **DeepSeek:** [DeepSeek Platform](https://platform.deepseek.com/api_keys) (Paid)
 3. The extension will auto-detect the provider and select the best model (e.g., *Gemini 2.0 Flash* or *Llama 4 Scout* for vision support)
 4. Set your preferred **Human-like Delay (Min/Max)** to avoid bot detection (e.g., 2s - 5s per question)
 5. Open a Google Form quiz or Moodle quiz page in your browser
-6. Click the WebToolKit icon and press **🤖 AI Auto Answer**
-7. Sit back! The AI will read the questions (including images!), stream the answers, and select the correct choices for you automatically
+6. Open the **⚙️ AI Settings** again and toggle **"Auto navigate to next page"** if you have a multi-page quiz
+7. Click the WebToolKit icon and press **🤖 AI Auto Answer**
+8. Sit back! The AI will read the questions (including images!), stream the answers, and select the correct choices for you automatically. If the auto-navigate is ON, it will seamlessly jump to the next page and continue solving
 
-> **Note on Providers:** Using models with **Vision capabilities** (like Gemini or Groq) is highly recommended for quizzes that contain images or screenshots. All API communication happens locally from your browser to the provider; we do not store your keys.
+> **Note on Providers:** Using models with **Vision capabilities** (like Gemini or Groq) is highly recommended for quizzes that contain images or screenshots. All API communication happens locally from your browser to the provider; we do not store your keys
 
 ---
 

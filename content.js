@@ -19,6 +19,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   } else if (message.action === "selectMoodleChoice") {
     const result = selectMoodleChoice(message.questionIndex, message.answerLetter);
     sendResponse(result);
+  } else if (message.action === "clickNextPage") {
+    const result = clickNextPage();
+    sendResponse(result);
   }
   return true;
 });
@@ -221,6 +224,39 @@ function selectMoodleChoice(questionIndex, answerLetter) {
     return { success: true, verified: isChecked };
   } catch (error) {
     console.error(`❌ Error selecting answer:`, error);
+    return { success: false, error: error.message };
+  }
+}
+
+// click next page button for Moodle
+function clickNextPage() {
+  console.log("➡️ Searching for Next page button...");
+  
+  try {
+    // Try standard Moodle next page button
+    const nextBtn = document.querySelector('input[name="next"], button[name="next"], .mod_quiz-next-nav');
+    if (nextBtn) {
+      console.log("🖱️ Clicking next page button");
+      nextBtn.click();
+      return { success: true };
+    }
+    
+    // Try looking for button by text
+    const buttons = Array.from(document.querySelectorAll('button, input[type="submit"]'));
+    const nextTextBtn = buttons.find(b => {
+      const text = (b.value || b.innerText || b.textContent || "").toLowerCase();
+      return text.includes("next page") || text.includes("halaman selanjutnya");
+    });
+    
+    if (nextTextBtn) {
+      console.log("🖱️ Clicking next page button (by text)");
+      nextTextBtn.click();
+      return { success: true };
+    }
+    
+    return { success: false, error: "Next page button not found" };
+  } catch (error) {
+    console.error(`❌ Error clicking next page:`, error);
     return { success: false, error: error.message };
   }
 }

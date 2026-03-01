@@ -6,6 +6,7 @@ class WebToolKit {
     this.capturing = false;
     this.entries = [];
     this.selectedEntries = new Set();
+    this.aiAutoActive = false;
     this.settings = {
       includeTitle: true,
       includeURL: true,
@@ -70,7 +71,7 @@ class WebToolKit {
       .addEventListener("click", () => this.answerGForm());
     document
       .getElementById("aiAutoBtn")
-      .addEventListener("click", () => this.aiAutoAnswer());
+      .addEventListener("click", () => this.toggleAIAuto());
     document
       .getElementById("aiSettingsBtn")
       .addEventListener("click", () => this.showAISettings());
@@ -106,6 +107,14 @@ class WebToolKit {
         console.log("✅ Entries loaded:", this.entries.length, "entries");
       } else {
         console.error("❌ Failed to load entries:", entriesResponse.error);
+      }
+
+      // load ai auto active state
+      console.log("📡 Requesting aiAutoActive status...");
+      const aiStatusResponse = await this.sendMessage({ action: "getAIAutoActive" });
+      if (aiStatusResponse.success) {
+        this.aiAutoActive = aiStatusResponse.aiAutoActive || false;
+        console.log("✅ AI Auto status loaded:", this.aiAutoActive);
       }
 
       // load current settings
@@ -330,7 +339,22 @@ class WebToolKit {
     document.getElementById("mergeBtn").disabled =
       this.selectedEntries.size === 0;
 
-    // show entries on screen
+    // Update AI Auto Toggle Button
+    const aiAutoBtn = document.getElementById("aiAutoBtn");
+    if (aiAutoBtn) {
+      if (this.aiAutoActive) {
+        aiAutoBtn.textContent = "🤖 AI Auto: ON";
+        aiAutoBtn.style.backgroundColor = "#28a745";
+        aiAutoBtn.style.color = "white";
+        aiAutoBtn.style.borderColor = "#28a745";
+      } else {
+        aiAutoBtn.textContent = "🤖 AI Auto: OFF";
+        aiAutoBtn.style.backgroundColor = "";
+        aiAutoBtn.style.color = "";
+        aiAutoBtn.style.borderColor = "";
+      }
+    }
+
     this.renderEntries();
   }
 
@@ -1465,6 +1489,37 @@ chrome.storage.local.get(['capturing', 'entries'], console.log)
     modal.addEventListener("click", (e) => { if (e.target === modal) modal.remove(); });
   }
 
+  // Toggle AI auto-answer state globally
+  async toggleAIAuto() {
+    try {
+      this.aiAutoActive = !this.aiAutoActive;
+      this.updateUI();
+
+      const response = await this.sendMessage({
+        action: "setAIAutoActive",
+        active: this.aiAutoActive
+      });
+
+      if (response && response.success) {
+        if (this.aiAutoActive) {
+          this.showMessage("🤖 Global AI Auto-Answer is ON. Navigating to new quiz pages will auto-trigger answers.", "success");
+        } else {
+          this.showMessage("🤖 Global AI Auto-Answer is OFF.", "info");
+        }
+      } else {
+        // revert if failed
+        this.aiAutoActive = !this.aiAutoActive;
+        this.updateUI();
+        this.showMessage(`❌ Failed to toggle AI Auto: ${response?.error || 'unknown'}`, "error");
+      }
+    } catch (error) {
+      this.aiAutoActive = !this.aiAutoActive;
+      this.updateUI();
+      console.error("❌ AI toggle error:", error);
+      this.showMessage("❌ Error: " + error.message, "error");
+    }
+  }
+
   // Trigger AI auto-answer
   async aiAutoAnswer() {
     try {
@@ -1506,6 +1561,10 @@ chrome.storage.local.get(['capturing', 'entries'], console.log)
               </div>`;
           });
           resultsHtml += `</div>`;
+        }
+        
+        if (response.nextClicked) {
+          resultsHtml += `<p style="color:#007bff; font-weight:bold; margin-top:10px; font-size: 12px;">➡️ Auto-navigating to next page...</p>`;
         }
 
         this.showManualCopyModal("", 0, "Auto-Answer Results");
